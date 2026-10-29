@@ -1,0 +1,39 @@
+{{- if .Values.reminders.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-reminders
+  labels:
+    {{- include "engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: reminders
+spec:
+  schedule: {{ .Values.reminders.schedule | quote }}
+  concurrencyPolicy: Forbid        # never two runs at the same time
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "engine.labels" . | nindent 12 }}
+            app.kubernetes.io/component: reminders
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: trigger
+              image: curlimages/curl:8.10.1
+              env:
+                - name: TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.api.existingSecret }}
+                      key: {{ .Values.reminders.tokenSecretKey }}
+              command: ["sh", "-c"]
+              args:
+                - >-
+                  curl -fsS -X POST -H "Authorization: Bearer $TOKEN"
+                  http://{{ .Release.Name }}-api/internal/reminders/dispatch
+{{- end }}

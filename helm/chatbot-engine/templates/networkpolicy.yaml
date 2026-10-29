@@ -1,0 +1,40 @@
+{{- if .Values.networkPolicy.enabled }}
+# API: reachable only from the gateway namespace and from the reminders job.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "engine.selector" (dict "ctx" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: reminders
+      ports:
+        - port: {{ .Values.api.port }}
+---
+# Redis: reachable only from the API pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-redis
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "engine.selector" (dict "ctx" . "component" "redis") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "engine.selector" (dict "ctx" . "component" "api") | nindent 14 }}
+      ports:
+        - port: 6379
+{{- end }}

@@ -1,0 +1,91 @@
+# Generic Azure DevOps pipeline: one run per environment, the reviewed plan is the one applied.
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+    default: dev
+    values: [dev, test, prod]
+
+variables:
+  workingDir: $(System.DefaultWorkingDirectory)/terraform/envs/${{ parameters.environment }}
+  serviceConnection: sc-terraform-${{ parameters.environment }}   # one service connection per subscription
+  stateKey: ${{ parameters.environment }}.tfstate                  # isolated state per environment
+
+trigger: none
+
+stages:
+  - stage: Plan
+    jobs:
+      - job: plan
+        pool: { name: private-agents }      # self-hosted agents inside the VNet reach private endpoints
+        steps:
+          - task: TerraformInstaller@1
+            inputs: { terraformVersion: "1.9.8" }
+          - task: TerraformTask@5
+            displayName: init
+            inputs:
+              provider: azurerm
+              command: init
+              workingDirectory: $(workingDir)
+              backendServiceArm: $(serviceConnection)
+              backendAzureRmResourceGroupName: rg-tfstate
+              backendAzureRmStorageAccountName: sttfstateexample
+              backendAzureRmContainerName: tfstate
+              backendAzureRmKey: $(stateKey)
+          - script: terraform fmt -check -recursive && terraform validate
+            workingDirectory: $(workingDir)
+            displayName: fmt and validate
+          - task: TerraformTask@5
+            displayName: plan
+            inputs:
+              provider: azurerm
+              command: plan
+              workingDirectory: $(workingDir)
+              commandOptions: -out=tfplan -input=false
+              environmentServiceNameAzureRM: $(serviceConnection)
+          - publish: $(workingDir)/tfplan
+            artifact: tfplan
+
+  - stage: Approve
+    dependsOn: Plan
+    jobs:
+      - job: review
+        pool: server
+        timeoutInMinutes: 1440
+        steps:
+          - task: ManualValidation@0
+            inputs:
+              instructions: Review the Terraform plan of the Plan stage, then approve or reject.
+              onTimeout: reject
+
+  - stage: Apply
+    dependsOn: Approve
+    jobs:
+      - job: apply
+        pool: { name: private-agents }
+        steps:
+          - download: current
+            artifact: tfplan
+          - task: TerraformInstaller@1
+            inputs: { terraformVersion: "1.9.8" }
+          - task: TerraformTask@5
+            displayName: init
+            inputs:
+              provider: azurerm
+              command: init
+              workingDirectory: $(workingDir)
+              backendServiceArm: $(serviceConnection)
+              backendAzureRmResourceGroupName: rg-tfstate
+              backendAzureRmStorageAccountName: sttfstateexample
+              backendAzureRmContainerName: tfstate
+              backendAzureRmKey: $(stateKey)
+          - script: cp $(Pipeline.Workspace)/tfplan/tfplan $(workingDir)/tfplan
+            displayName: restore reviewed plan
+          - task: TerraformTask@5
+            displayName: apply
+            inputs:
+              provider: azurerm
+              command: apply
+              workingDirectory: $(workingDir)
+              commandOptions: -input=false tfplan
+              environmentServiceNameAzureRM: $(serviceConnection)

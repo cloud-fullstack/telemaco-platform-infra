@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chatbot-engine
+description: Conversational engine API with Redis session store and reminder CronJob (showcase)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

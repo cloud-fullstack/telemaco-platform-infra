@@ -1,0 +1,30 @@
+image:
+  repository: registry.example.com/chatbot-engine
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+api:
+  port: 8000
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
+  # Provider keys, DB and mail credentials come from an existing Secret, never from values.
+  existingSecret: chatbot-engine-secrets
+
+redis:
+  enabled: true
+  image: redis:7.4-alpine
+  storage: 1Gi
+  # Generated once and kept across upgrades (see templates/redis-secret.yaml).
+  passwordSecret: chatbot-engine-redis
+
+reminders:
+  enabled: true
+  schedule: "*/10 * * * *"
+  tokenSecretKey: REMINDERS_TOKEN
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: gateway     # only the public gateway may call the API
